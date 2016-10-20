@@ -265,7 +265,7 @@ void GazeboViewControlPlugin::OnUpdate() {
 
 bool GazeboViewControlPlugin::OnMousePress(const common::MouseEvent& _event) {
   math::Vector3 world_pos;
-  math::Vector2i click_pos = _event.pos;
+  math::Vector2i click_pos = _event.Pos();
   rendering::ScenePtr scene = rendering::get_scene();
 
   scene->GetFirstContact(user_cam_, click_pos, world_pos);
