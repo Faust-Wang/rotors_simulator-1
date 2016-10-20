@@ -37,4 +37,8 @@
       <param name="controls_sensitivity" value="0.05" />
     </node>
   </group>
+
+  <include file="$(find polaris_simple_control_plugin)/launch/spawn_polaris.launch">
+    
+  </include>
 </launch>
