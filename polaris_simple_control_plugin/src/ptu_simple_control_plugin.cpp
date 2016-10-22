@@ -94,10 +94,10 @@ void PTUControlPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     joints[PAN]  = _model->GetJoint(_sdf->GetElement("joint_pan")->Get<std::string>());
     ROS_INFO("%s", joints[PAN]->GetScopedName().c_str());
     this->pid_pan_velocity = common::PID(0.1, 0, 0);
-    this->pid_pan_position = common::PID(5.0, 0.01, 2.0);  
+    this->pid_pan_position = common::PID(5.0, 0.01, 3.0);  
     this->model->GetJointController()->SetVelocityPID(joints[PAN]->GetScopedName(), this->pid_pan_velocity);
     this->model->GetJointController()->SetPositionPID(joints[PAN]->GetScopedName(), this->pid_pan_position);
-
+    this->model->GetJointController()->SetPositionTarget(joints[PAN]->GetScopedName(), 0.0);
     has_pan_joint = true;
   }
 
@@ -110,9 +110,11 @@ void PTUControlPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     joints[TILT]  = _model->GetJoint(_sdf->GetElement("joint_tilt")->Get<std::string>());
     ROS_INFO("%s", joints[TILT]->GetScopedName().c_str());
     this->pid_tilt_velocity = common::PID(0.1, 0, 0);
-    this->pid_tilt_position = common::PID(80.0, 0.01, 6.0); 
+    this->pid_tilt_position = common::PID(5.0, 0.01, 3.0);  //PID(80.0, 0.01, 6.0); 
     this->model->GetJointController()->SetVelocityPID(joints[TILT]->GetScopedName(), this->pid_tilt_velocity);
     this->model->GetJointController()->SetPositionPID(joints[TILT]->GetScopedName(), this->pid_tilt_position); 
+    this->model->GetJointController()->SetPositionTarget(joints[TILT]->GetScopedName(), 0.0);
+
     has_tilt_joint = true;
   }
   
@@ -383,6 +385,7 @@ void PTUControlPlugin::Update()
 
   if (has_tilt_joint == true)
     this->model->GetJointController()->SetPositionTarget(joints[TILT]->GetScopedName(), jointPosition[TILT]);
+
   publish_joint_state();
 
 }
@@ -409,10 +412,16 @@ void PTUControlPlugin::SetPTUVelCallback(const sensor_msgs::JointState::ConstPtr
 
   //ROS_INFO("jointSpeed[PAN] %f", jointSpeed[PAN]);
   lock.lock();
-  jointSpeed[PAN] = cmd_msg->velocity[0];  
-  jointPosition[PAN] = cmd_msg->position[0];
-  jointSpeed[TILT] = cmd_msg->velocity[1];  
-  jointPosition[TILT] = cmd_msg->position[1];
+  if (has_pan_joint == true)
+  {
+    jointSpeed[PAN] = cmd_msg->velocity[0];  
+    jointPosition[PAN] = cmd_msg->position[0];    
+  }
+  if (has_tilt_joint == true)
+  {
+    jointSpeed[TILT] = cmd_msg->velocity[1];  
+    jointPosition[TILT] = cmd_msg->position[1];    
+  }
   lock.unlock();
 /*
   lock.lock();

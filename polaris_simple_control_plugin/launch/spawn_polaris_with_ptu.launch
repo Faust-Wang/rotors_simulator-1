@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+ 
+<launch>
+
+  <!--node name="spawn_polaris_model" pkg="gazebo_ros" type="spawn_model"
+    args=" -database polaris_ranger_ev -gazebo -model polaris_ranger_ev -x 5 -y 5"/-->
+    
+  <param name="robot_polaris" textfile="$(find polaris_description)/models/model-1_4_with_ptu.sdf" />  
+  <node
+      name="spawn_polaris_model"
+      pkg="gazebo_ros"
+      type="spawn_model"
+      args="-sdf -param robot_polaris -model polaris_ranger_ev -x 5.0 -y 5.0"
+      output="screen">
+  </node>
+
+
+</launch>

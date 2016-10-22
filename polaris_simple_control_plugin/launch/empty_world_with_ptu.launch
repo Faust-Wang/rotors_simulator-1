@@ -1,20 +1,23 @@
 <launch>
+
   <arg name="uav_name" default="techpod"/>
-  <arg name="world_name" default="rafz"/>
   <arg name="enable_logging" default="false"/>
   <arg name="enable_ground_truth" default="true"/>
   <arg name="log_file" default="$(arg uav_name)"/>
+  <arg name="world_name" default="rafz"/>
+
 
   <env name="GAZEBO_MODEL_PATH" value="${GAZEBO_MODEL_PATH}:$(find rotors_gazebo)/models"/>
   <env name="GAZEBO_RESOURCE_PATH" value="${GAZEBO_RESOURCE_PATH}:$(find rotors_gazebo)/models"/>
+
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" value="$(find rotors_gazebo)/worlds/$(arg world_name).world"/>
-    <arg name="paused" value="false" />
-    <arg name="gui" value="true" />
-    <arg name="use_sim_time" value="false" />
-    <arg name="verbose" value="false" />
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="false"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="debug" value="false"/>
   </include>
-
 
   <group ns="$(arg uav_name)">
     <rosparam command="load" file="$(find rotors_gazebo)/resource/fixed_wing/$(arg uav_name).yaml" />
@@ -38,6 +41,16 @@
       <param name="controls_sensitivity" value="0.05" />
     </node>
   </group>
-    
-  </include>
+
+
+
+  <param name="robot_polaris" textfile="$(find polaris_description)/models/model-1_4_with_ptu.sdf" />
+  <node
+    name="spawn_model2"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-sdf -param robot_polaris -model polaris -x 5.0"
+    output="screen">
+  </node>
+
 </launch>
