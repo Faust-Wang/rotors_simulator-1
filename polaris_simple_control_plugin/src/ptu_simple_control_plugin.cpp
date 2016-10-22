@@ -36,7 +36,7 @@
 #include <algorithm>
 #include <assert.h>
 
-#include <polaris_simple_control_plugin.h>
+#include <ptu_simple_control_plugin.h>
 
 
 using namespace gazebo;
@@ -44,38 +44,36 @@ using namespace gazebo;
 
 enum
 {
-  RIGHT, LEFT, LSTEER, RSTEER
+  PAN, TILT
 };
 
 const double TAU = 6.28318530717958647693;  // 2 * pi
 
 // Constructor
-AckermannPlugin::AckermannPlugin()
+PTUControlPlugin::PTUControlPlugin()
 {
 
 }
 
 // Destructor
-AckermannPlugin::~AckermannPlugin()
+PTUControlPlugin::~PTUControlPlugin()
 {
   event::Events::DisconnectWorldUpdateBegin(updateConnection);
   delete transform_broadcaster_;
   rosnode_->shutdown();
   callback_queue_thread_.join();
   delete rosnode_;
-
-
 }
 
 // Load the controller
-void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
+void PTUControlPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
 {
   
-   ROS_INFO("AckermannPlugin::Load");
-  
-  world = _model->GetWorld();
-
-
+   ROS_INFO("PTUControlPlugin::Load");
+   this->model = _model;
+   world = _model->GetWorld();
+   has_tilt_joint =false;
+   has_pan_joint = false;
     // load parameters
   if (!_sdf->HasElement("robotNamespace"))
     robotNamespace.clear();
@@ -85,12 +83,41 @@ void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
     robotNamespace = _sdf->GetElement("robotNamespace")->Get<std::string>() + "/";
   
    if (!_sdf->HasElement("topicName"))
-    topicName = "cmd_vel";
+    topicName = "joint_state_cmd";
   else
     //getSdfParam<std::string>(_sdf, "topicName", topicName,topicName);
     topicName = _sdf->GetElement("topicName")->Get<std::string>();
   
+
+  if (_sdf->HasElement("joint_pan"))  
+  {
+    joints[PAN]  = _model->GetJoint(_sdf->GetElement("joint_pan")->Get<std::string>());
+    ROS_INFO("%s", joints[PAN]->GetScopedName().c_str());
+    this->pid_pan_velocity = common::PID(0.1, 0, 0);
+    this->pid_pan_position = common::PID(5.0, 0.01, 2.0);  
+    this->model->GetJointController()->SetVelocityPID(joints[PAN]->GetScopedName(), this->pid_pan_velocity);
+    this->model->GetJointController()->SetPositionPID(joints[PAN]->GetScopedName(), this->pid_pan_position);
+
+    has_pan_joint = true;
+  }
+
+  //this->joint = _model->GetJoint(_sdf->GetElement("joint_pan")->Get<std::string>());
   
+
+
+  if (_sdf->HasElement("joint_tilt"))  
+  {
+    joints[TILT]  = _model->GetJoint(_sdf->GetElement("joint_tilt")->Get<std::string>());
+    ROS_INFO("%s", joints[TILT]->GetScopedName().c_str());
+    this->pid_tilt_velocity = common::PID(0.1, 0, 0);
+    this->pid_tilt_position = common::PID(80.0, 0.01, 6.0); 
+    this->model->GetJointController()->SetVelocityPID(joints[TILT]->GetScopedName(), this->pid_tilt_velocity);
+    this->model->GetJointController()->SetPositionPID(joints[TILT]->GetScopedName(), this->pid_tilt_position); 
+    has_tilt_joint = true;
+  }
+  
+
+   /*
   if (!_sdf->HasElement("wheelDistance"))
     wheelDistance = 1.2;
   else
@@ -131,7 +158,7 @@ void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   // assert that the body by linkName exists
   if (!link)
   {
-    ROS_FATAL("AckermannPlugin error: bodyName: %s does not exist\n", linkName.c_str());
+    ROS_FATAL("PTUControlPlugin error: bodyName: %s does not exist\n", linkName.c_str());
     return;
   }
 
@@ -148,13 +175,16 @@ void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   if (!joints[LSTEER]) ROS_FATAL("Plugin error: The controller couldn't get leftsteer joint");
   if (!joints[RSTEER]) ROS_FATAL("Plugin error: The controller couldn't get rightsteer joint");
   
-
+*/
   enableMotors = true;
 
-  wheelSpeed[RIGHT] = 0;
-  wheelSpeed[LEFT] = 0;
-  steerAngle = 0;
+  jointSpeed[PAN] = 0;
+  jointSpeed[TILT] = 0;
+  jointPosition[PAN] = 0;
+  jointPosition[TILT] = 0;
 
+  steerAngle = 0;
+  /*
   prevUpdateTime = world->GetSimTime();
 
 
@@ -166,35 +196,31 @@ void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
      joints[RSTEER]->SetParam ( "fmax", 0, steerTorque );
    //  joints[STEER]->SetHighStop(0, 3.14);
    //  joints[STEER]->SetLowStop(0, -3,14);
-
+*/
 
   if (!ros::isInitialized())
   {
     int argc = 0;
     char** argv = NULL;
-    ros::init(argc,argv,"ackermann_plugin",ros::init_options::NoSigintHandler|ros::init_options::AnonymousName);
-
-
+    ros::init(argc,argv,"ptu_control_plugin",ros::init_options::NoSigintHandler|ros::init_options::AnonymousName);
   }
-
+  
   rosnode_ = new ros::NodeHandle(robotNamespace);
 
-  tf_prefix_ = tf::getPrefixParam(*rosnode_);
-  transform_broadcaster_ = new tf::TransformBroadcaster();
-
-
-  // ROS: Subscribe to the CarDrive command topic (usually "car_drive")
-  //ROS_INFO("%s: Try to subscribe to %s!", rosnode_->info(), topicName.c_str());
+  //tf_prefix_ = tf::getPrefixParam(*rosnode_);
+  //transform_broadcaster_ = new tf::TransformBroadcaster();
+ 
   ros::SubscribeOptions so =
-      ros::SubscribeOptions::create<geometry_msgs::Twist>(topicName, 1,
-                                                               boost::bind(&AckermannPlugin::carDriveCallback, this, _1),
+      ros::SubscribeOptions::create<sensor_msgs::JointState>(topicName, 1,
+                                                               boost::bind(&PTUControlPlugin::SetPTUVelCallback, this, _1),
                                                                ros::VoidPtr(), &queue_);
  
   sub_ = rosnode_->subscribe(so);
 
-  pub_ = rosnode_->advertise<nav_msgs::Odometry>("odom", 1);
+  //pub_ = rosnode_->advertise<nav_msgs::Odometry>("odom", 1);
+  pub_ = rosnode_->advertise<sensor_msgs::JointState>("joint_state", 1);
   
-  callback_queue_thread_ = boost::thread(boost::bind(&AckermannPlugin::QueueThread, this));
+  callback_queue_thread_ = boost::thread(boost::bind(&PTUControlPlugin::QueueThread, this));
   
   Reset();
   
@@ -202,46 +228,54 @@ void AckermannPlugin::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf)
   // Listen to the update event. This event is broadcast every
   // simulation iteration.
   updateConnection = event::Events::ConnectWorldUpdateBegin(
-      boost::bind(&AckermannPlugin::Update, this));
+      boost::bind(&PTUControlPlugin::Update, this)); 
 
 }
 
-// Initialize the controller
-void AckermannPlugin::Init()
+void PTUControlPlugin::SetVelocity(const double &_vel)
 {
-  callback_queue_thread_ = boost::thread(boost::bind(&AckermannPlugin::QueueThread, this));
+  // Set the joint's target velocity.
+  this->model->GetJointController()->SetVelocityTarget(
+      joints[PAN]->GetScopedName(), _vel);
+}
+
+
+// Initialize the controller
+void PTUControlPlugin::Init()
+{
+  callback_queue_thread_ = boost::thread(boost::bind(&PTUControlPlugin::QueueThread, this));
 }
 
 
 // Reset
-void AckermannPlugin::Reset()
+void PTUControlPlugin::Reset()
 {
   
   prevUpdateTime = world->GetSimTime();
   alive_ = true;
-  joints[LEFT]->SetParam ( "fmax", 0, driveTorque );
+  /*joints[LEFT]->SetParam ( "fmax", 0, driveTorque );
   joints[RIGHT]->SetParam ( "fmax", 0, driveTorque );
   joints[LSTEER]->SetParam ( "fmax", 0, steerTorque );
-  joints[RSTEER]->SetParam ( "fmax", 0, steerTorque );
+  joints[RSTEER]->SetParam ( "fmax", 0, steerTorque );*/
 
 }
 
 // Update the controller
-void AckermannPlugin::Update()
+void PTUControlPlugin::Update()
 {
   
   double a,b;
   double w;
   common::Time stepTime;
 
-  for ( int i = 0; i < 2; i++ ) 
+  /*for ( int i = 0; i < 2; i++ ) 
   {
      if ( fabs(driveTorque -joints[i]->GetParam ( "fmax", 0 )) > 1e-6 ) 
         joints[i]->SetParam ( "fmax", 0, driveTorque );
-  }
+  }*/
 
-  GetPositionCmd();
-
+  //GetPositionCmd();
+  /*
   stepTime = world->GetSimTime() - prevUpdateTime;
   prevUpdateTime = world->GetSimTime();
 
@@ -276,7 +310,7 @@ void AckermannPlugin::Update()
   */
   //ROS_INFO("w:%f steerAngle:%f wheelSpeed[LEFT]:%f wheelSpeed[RIGHT]:%f", w,steerAngle,wheelSpeed[LEFT], wheelSpeed[RIGHT]);
 
-  if (enableMotors)
+  /*if (enableMotors)
   {
 
     if(wheelSpeed[LEFT]>0)
@@ -308,7 +342,7 @@ void AckermannPlugin::Update()
 
     // joints[STEER]->SetForce(0, ang_vel);
      joints[LSTEER]->SetParam ( "vel", 0, left_ang_vel);
-     joints[RSTEER]->SetParam ( "vel", 0, right_ang_vel);
+     joints[RSTEER]->SetParam ( "vel", 0, right_ang_vel);*/
   /*  joints[LEFT]->SetVelocity(0, wheelSpeed[LEFT] / (wheelDiam / 2.0));
 
     joints[RIGHT]->SetVelocity(0, wheelSpeed[RIGHT] / (wheelDiam / 2.0));
@@ -318,7 +352,7 @@ void AckermannPlugin::Update()
     // than this simple proportional controller
     joints[STEER]->SetVelocity(0, ang_vel);
 
-	
+  
     joints[LEFT]->SetMaxForce(0, driveTorque);
     joints[RIGHT]->SetMaxForce(0,driveTorque);
     joints[STEER]->SetMaxForce(0,steerTorque);  */
@@ -328,39 +362,59 @@ void AckermannPlugin::Update()
  #else
              joints_[LEFT]->SetVelocity ( 0,wheel_speed_instr_[LEFT] / ( wheel_diameter_ / 2.0 ) );
              joints_[RIGHT]->SetVelocity ( 0,wheel_speed_instr_[RIGHT] / ( wheel_diameter_ / 2.0 ) );
- #endif*/
+ #endif
 
+  }*/
+  //ROS_INFO("Joint speed:%f", jointSpeed[PAN]);
+  
+  /*  TODO: Switch between PositionTarget and VelocityTarget conflict
+  if (jointSpeed[PAN] == 0.0)
+  {
+    this->model->GetJointController()->Update();
+    this->model->GetJointController()->SetPositionTarget(joints[PAN]->GetScopedName(), jointPosition[PAN]);
   }
+  else
+  {
+    this->model->GetJointController()->Update();
+    this->model->GetJointController()->SetVelocityTarget(joints[PAN]->GetScopedName(), jointSpeed[PAN]);
+  }*/
+  if (has_pan_joint == true)
+    this->model->GetJointController()->SetPositionTarget(joints[PAN]->GetScopedName(), jointPosition[PAN]);
 
-  publish_odometry();
-
-
+  if (has_tilt_joint == true)
+    this->model->GetJointController()->SetPositionTarget(joints[TILT]->GetScopedName(), jointPosition[TILT]);
+  publish_joint_state();
 
 }
 
 
 // NEW: Now uses the target velocities from the ROS message, not the Iface 
-void AckermannPlugin::GetPositionCmd()
+void PTUControlPlugin::GetPositionCmd()
 {
-  lock.lock();
 
+  //lock.lock();
+  //jointSpeed[PAN] = speed_;
   // Changed motors to be always on, which is probably what we want anyway
-  enableMotors = true; 
-
+  /* enableMotors = true; 
   wheelSpeed[LEFT] = speed_;
   wheelSpeed[RIGHT] = speed_;
   steerAngle = angle_;
-
-  lock.unlock();
-
-
+  */
+  // lock.unlock();
 }
 
 // NEW: Store the velocities from the ROS message
-void AckermannPlugin::carDriveCallback(const geometry_msgs::Twist::ConstPtr& cmd_msg)
+void PTUControlPlugin::SetPTUVelCallback(const sensor_msgs::JointState::ConstPtr& cmd_msg)
 {
 
-
+  //ROS_INFO("jointSpeed[PAN] %f", jointSpeed[PAN]);
+  lock.lock();
+  jointSpeed[PAN] = cmd_msg->velocity[0];  
+  jointPosition[PAN] = cmd_msg->position[0];
+  jointSpeed[TILT] = cmd_msg->velocity[1];  
+  jointPosition[TILT] = cmd_msg->position[1];
+  lock.unlock();
+/*
   lock.lock();
 
   speed_ = cmd_msg->linear.x;
@@ -368,12 +422,12 @@ void AckermannPlugin::carDriveCallback(const geometry_msgs::Twist::ConstPtr& cmd
   
   // FIXME: take acceleration and jerk into account
 
-  lock.unlock();
+  */
 
 }
 
 // NEW: custom callback queue thread
-void AckermannPlugin::QueueThread()
+void PTUControlPlugin::QueueThread()
 {
 
   static const double timeout = 0.01;
@@ -388,14 +442,14 @@ void AckermannPlugin::QueueThread()
 }
 
 // NEW: Update this to publish odometry topic
-void AckermannPlugin::publish_odometry()
-{	
+void PTUControlPlugin::publish_joint_state()
+{ 
 
   // get current time
   ros::Time current_time_((world->GetSimTime()).sec, (world->GetSimTime()).nsec);
 
   // getting data for base_footprint to odom transform
-  math::Pose pose = link->GetWorldPose();
+  /*math::Pose pose = link->GetWorldPose();
   math::Vector3 velocity = link->GetWorldLinearVel();
   math::Vector3 angular_velocity = link->GetWorldAngularVel();
 
@@ -427,10 +481,29 @@ void AckermannPlugin::publish_odometry()
 
   odom_.header.frame_id = tf::resolve(tf_prefix_, "odom");
   odom_.child_frame_id = "base_footprint";
-  odom_.header.stamp = current_time_;
+  odom_.header.stamp = current_time_;*/
 
-  pub_.publish(odom_);
+  
+  //joint_state_pan.frame_id = "pan_joint";
+
+  sensor_msgs::JointState joint_state_pan;
+  // Get current Pan Joint rotation speed
+  double pan_current_speed = joints[PAN]->GetVelocity(0);
+  
+  //double pan_current_position = joints[PAN]->GetAngle(0).Radian(); // For total angle 
+
+  // Get current Pan Joint pose and transfer to yaw angle (degree)
+  math::Pose pan_current_pose = joints[PAN]->GetAnchorErrorPose();
+  double pan_current_yaw = pan_current_pose.rot.GetYaw()*57.2958;  // rad to degree
+  // Publish pan angle states
+  joint_state_pan.header.stamp = current_time_;
+  joint_state_pan.name.push_back("pan_joint");
+  joint_state_pan.position.push_back(pan_current_yaw);
+  joint_state_pan.velocity.push_back(pan_current_speed);
+  joint_state_pan.effort.push_back(0.0);
+
+  pub_.publish(joint_state_pan);
 
 }
 
-GZ_REGISTER_MODEL_PLUGIN(AckermannPlugin)
+GZ_REGISTER_MODEL_PLUGIN(PTUControlPlugin)

@@ -20,7 +20,11 @@ catkin_package(
 
 add_library(polaris_simple_control_plugin src/polaris_simple_control_plugin.cpp)
 target_link_libraries(polaris_simple_control_plugin ${GAZEBO_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(polaris_simple_control_plugin ${catkin_EXPORTED_TARGETS})
 
+add_library(ptu_simple_control_plugin src/ptu_simple_control_plugin.cpp)
+target_link_libraries(ptu_simple_control_plugin ${GAZEBO_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(polaris_simple_control_plugin ${catkin_EXPORTED_TARGETS})
 
 install(DIRECTORY include/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
@@ -37,3 +41,11 @@ install(DIRECTORY sdf/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
   FILES_MATCHING PATTERN "*.sdf"
   PATTERN ".git" EXCLUDE)
+
+install(
+  TARGETS
+    polaris_simple_control_plugin
+    ptu_simple_control_plugin 
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+)
